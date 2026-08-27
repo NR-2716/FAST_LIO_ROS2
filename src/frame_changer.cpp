@@ -1,38 +1,59 @@
-<?xml version="1.0"?>
-<robot name="lio" xmlns:xacro="http://tixiaoshan.github.io/">
-  <xacro:property name="PI" value="3.1415926535897931" />
+#include <memory>
 
-  <link name="base_link"/>
+#include <rclcpp/rclcpp.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
-  <link name="lidar_link"> </link>
-  <joint name="lidar_joint" type="fixed">
-    <parent link="base_link" />
-    <child link="lidar_link" />
-    <origin xyz="0 0 0.5" rpy="0 0 0" />
-  </joint>
+class OdomFrameFixer : public rclcpp::Node
+{
+public:
+    OdomFrameFixer()
+    : Node("odom_frame_fixer")
+    {
+        odom_sub_ = this->create_subscription<nav_msgs::msg::Odometry>("/Odometry",10,std::bind(&OdomFrameFixer::odomcallback, this, std::placeholders::_1));
+        global_pc2_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>("/Laser_map",10,std::bind(&OdomFrameFixer::globalpc2callback, this, std::placeholders::_1));
 
-  <!--
-  <link name="imu_link"> </link>
-  <joint name="imu_joint" type="fixed">
-    <parent link="base_link" />
-    <child link="imu_link" />
-    <origin xyz="0 0 0" rpy="0 0 0" />
-  </joint>
-  -->
+        odom_pub_ = this->create_publisher<nav_msgs::msg::Odometry>("/lio_odom_fixed",10);
+        global_pc2_pub_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map_fix",10);
 
-  <link name="livox_frame"> </link>
-  <joint name="laser_joint" type="fixed">
-    <parent link="lidar_link" />
-    <child link="livox_frame" />
-    <origin xyz="0 0 0.0" rpy="0 0 0" />
-  </joint>
+        RCLCPP_INFO(this->get_logger(), "odom_frame_fixer started");
+    }
 
+private:
+    void odomcallback(const nav_msgs::msg::Odometry::SharedPtr msg)
+    {
+        auto odom = *msg;
 
-  <link name="gnss_link"> </link>
-  <joint name="gnss_joint" type="fixed">
-    <parent link="base_link" />
-    <child link="gnss_link" />
-    <origin xyz="0 0 0.63" rpy="0 0 0" />
-  </joint>
+        odom.header.frame_id = "odom";
+        odom.child_frame_id = "base_link";
 
-</robot>
+        odom_pub_->publish(odom);
+    }
+
+    void globalpc2callback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+    {
+        auto pc2 = *msg;
+
+        pc2.header.frame_id = "odom";
+
+        global_pc2_pub_->publish(pc2);
+    }
+
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr global_pc2_sub_;
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr global_pc2_pub_;
+};
+
+int main(int argc, char ** argv)
+{
+    rclcpp::init(argc, argv);
+
+    auto node = std::make_shared<OdomFrameFixer>();
+
+    rclcpp::spin(node);
+
+    rclcpp::shutdown();
+
+    return 0;
+}
